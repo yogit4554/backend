@@ -66,6 +66,8 @@ const addComment = asyncHandler(async (req, res) => {
         const { newContent}=req.body
         const userId= await req.user._id;
 
+        const commentOwner=User.findById(userId)
+
     } catch (error) {
         throw new ApiError(400,error.message)
     }
@@ -73,7 +75,7 @@ const addComment = asyncHandler(async (req, res) => {
     const comment = await Comment.create({
         content:newContent,
         video:videoId,
-        owner: userId
+        owner: commentOwner
     })
 
     if(comment === ""){

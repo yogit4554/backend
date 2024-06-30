@@ -25,6 +25,10 @@ const videoSchema= new Schema({
         type:Number, // cloudinary
         required:true
     },
+    publicId:{
+        type:String,
+        required:true
+    },
     views:{
         type:Number,
         default:0
