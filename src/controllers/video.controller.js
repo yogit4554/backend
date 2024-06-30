@@ -10,7 +10,7 @@ import {v2 as cloudinary} from "cloudinary"
 
 const getAllVideos = asyncHandler(async (req, res) => {
     try {
-        const { page = 1, limit = 10, query, sortBy, sortType, userId } = req.params
+        const { page = 1, limit = 10, query, sortBy = "title", sortType= "asc", userId } = req.params
         const pageLimit = parseInt(limit)
         const skip = offset;
 
