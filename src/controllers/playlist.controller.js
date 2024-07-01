@@ -131,13 +131,6 @@ const getUserPlaylists = asyncHandler(async (req, res) => {
 
                         ]
                     }
-                },
-                {
-                    $addFields: {
-                        videos: {
-                            $first: "$videos"
-                        }
-                    }
                 }
 
             ]
@@ -199,6 +192,13 @@ const addVideoToPlaylist = asyncHandler(async (req, res) => {
         const playlist = await Playlist.findById(playlistId)
         if(!playlist){
             throw new ApiError(400,"Playlist correspoind id is not found.")
+        }
+
+        // checking video alredy exist or not 
+        const videoExists= playlist.video.find(vid => vid.toString() === videoId.toString());
+
+        if(videoExists){
+            throw new ApiError(400,"Video alredy exists in playlist.")
         }
 
         // checking owner
