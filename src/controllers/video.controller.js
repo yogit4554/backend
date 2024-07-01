@@ -10,9 +10,10 @@ import {v2 as cloudinary} from "cloudinary"
 
 const getAllVideos = asyncHandler(async (req, res) => {
     try {
-        const { page = 1, limit = 10, query, sortBy = "title", sortType= "asc", userId } = req.params
+        const { page = 1, limit = 10, query, sortBy = "title", sortType= "asc", userId } = req.query
+        const pageNumber = parseInt(page)
         const pageLimit = parseInt(limit)
-        const skip = offset;
+        const skip = (pageNumber - 1) * pageLimit;
 
         const sortingDirection = sortType === "desc"?-1:1;
 
@@ -42,7 +43,7 @@ const getAllVideos = asyncHandler(async (req, res) => {
             {
                 $addFields:{
                     owner:{
-                        $first:"$owner"
+                        $arrayElemAt: [ "$owner", 0 ]
                     }
                 }
             },
@@ -97,13 +98,13 @@ const publishAVideo = asyncHandler(async (req, res) => {
         }
 
         const newVideo= await Video.create({
-            title,
-            description,
+            title:title,
+            description:description,
             thumbnail:thumbnail.url,
             videoFile:video.url,
             publicId:video.public_id,
             duration:video.duration,
-            owner:video.user._id,
+            owner:userId,  /// this might casuse error 
             isPublished:true
         })
         
@@ -137,10 +138,10 @@ const getVideoById = asyncHandler(async (req, res) => {
         }
 
         //incrementing the view of video 
-        await findByIdAndUpdate(videoId,{$inc:{views:1}},{new : true})
+        await Video.findByIdAndUpdate(videoId,{$inc:{views:1}},{new : true})
 
         // adding the video  to the watch history of the viewer
-        await findByIdAndUpdate(req.user._id,{$push:{ watchHistory: videoId}},{new:true})
+        await User.findByIdAndUpdate(req.user._id,{$push:{ watchHistory: videoId}},{new:true})
 
         return res
         .status(200)
@@ -165,7 +166,7 @@ const updateVideo = asyncHandler(async (req, res) => { // only updating thumbnai
             throw new ApiError(404,"Video not found")
         }
 
-        const publicId=video.publicId
+        const publicId=await video.thumbnail.public_id
 
         if(publicId){ // deleting old thumbnail
             try {
@@ -228,6 +229,7 @@ const deleteVideo = asyncHandler(async (req, res) => {
         if(publicId){
             try {
                 await cloudinary.uploader.destroy(publicId,{resource_type:"video"})
+                await Video.findByIdAndDelete(videoId)
             } catch (error) {
                 throw new ApiError(400,"Error while deleting video")
             }
