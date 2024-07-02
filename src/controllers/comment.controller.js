@@ -63,30 +63,36 @@ const getVideoComments = asyncHandler(async (req, res) => {
 const addComment = asyncHandler(async (req, res) => {
     try {
         const{videoId}=req.params
-        const { newContent}=req.body
+        const { newContent }=req.body
         const userId= await req.user._id;
 
-        const commentOwner=User.findById(userId)
+        console.log(newContent)
+        console.log(req.body)
 
+        if(!newContent){
+            throw new ApiError(400,"Comment can not be empty")   
+        }
+
+        const user =  await User.findById(userId)
+
+        const comment = await Comment.create({
+            content:newContent,
+            video:videoId,
+            owner: user
+        })
+
+        if(!comment){
+            throw new ApiError(400,"Comment can not be added.")
+        }
+
+        return res
+        .status(200)
+        .json(
+            new ApiResponse(200,comment,"Comment has been added!!!")
+        )
     } catch (error) {
         throw new ApiError(400,error.message)
     }
-
-    const comment = await Comment.create({
-        content:newContent,
-        video:videoId,
-        owner: commentOwner
-    })
-
-    if(comment === ""){
-        throw new ApiError(400,"Comment can not be empty")
-    }
-
-    return res
-    .status(200)
-    .json(
-        new ApiResponse(200,comment,"Comment has been added!!!")
-    )
 })
 
 const updateComment = asyncHandler(async (req, res) => {

@@ -8,6 +8,7 @@ import {Video} from "../models/video.models.js"
 
 const createPlaylist = asyncHandler(async (req, res) => {
     const {name, description} = req.body
+    console.log(req.body)
 
     if(!name){
         throw new ApiError(400,"Please enter the name of playlist.")

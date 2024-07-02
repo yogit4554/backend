@@ -5,9 +5,12 @@ import {ApiError} from "../utils/apiError.js"
 import {ApiResponse} from "../utils/apiResponse.js"
 import {asyncHandler} from "../utils/asyncHandler.js"
 
-const createTweet = asyncHandler(async (req, res) => {
-    const {content} = req.body
-    const userId = await req.user._id;
+const createTweet = asyncHandler( async(req, res) => {
+    const {content} =  req.body;
+    const userId = await req.user._id;  
+    
+    console.log(content);
+    console.log(req.body)
 
     try {
         if(!content){
@@ -32,7 +35,7 @@ const createTweet = asyncHandler(async (req, res) => {
         )
 
     } catch (error) {
-        throw new ApiError(400,"Error while  creating tweet.")
+        throw new ApiError(400,`Error while  creating tweet. ${error.message}`)
     }
 
 })
