@@ -6,57 +6,85 @@ import {asyncHandler} from "../utils/asyncHandler.js"
 import { User } from "../models/user.models.js"
 
 const getVideoComments = asyncHandler(async (req, res) => {
-    const {videoId} = req.params
-    const {page = 1, limit = 10} = req.query
+    const { videoId } = req.params
+    const { page = 1, limit = 10 } = req.query
 
-    const pageLimit = parseInt(limit);
-    const pageNumber = parseInt(page)
-    const offset = (pageNumber - 1 ) * pageLimit;
-    const skip = offset;
-
-    const comments = await Comment.aggregate([
+    const commentsAggregate = Comment.aggregate([
         {
-            $match:{
-                video : new mongoose.Types.ObjectId(videoId)
+            $match: {
+                video: new mongoose.Types.ObjectId(videoId)
             }
         },
         {
-            from:"users",
-            localField:"owner",
-            foreignField:"_id",
-            as:"owner",
-            pipeline:[
-                {
-                    $project:{
-                        fullName:1,
-                        username:1,
-                        avatar:1
+            $lookup: {
+                from: "users",
+                localField: "owner",
+                foreignField: "_id",
+                as: "owner"
+            }
+        },
+        {
+            $lookup: {
+                from: "likes",
+                localField: "_id",
+                foreignField: "comment",
+                as: "likes"
+            }
+        },
+        {
+            $addFields: {
+                likesCount: {
+                    $size: "$likes"
+                },
+                owner: {
+                    $first: "$owner"
+                },
+                isLiked: {
+                    $cond: {
+                        if: { $in: [req.user?._id, "$likes.likedBy"] },
+                        then: true,
+                        else: false
                     }
                 }
-            ]
-        },
-        {
-            $addFields:{
-                owner:{
-                    $first:"$owner"
-                }
             }
         },
         {
-            $skip:skip
+            $sort: {
+                createdAt: -1
+            }
         },
         {
-            $limit:pageLimit
+            $project: {
+                content: 1,
+                createdAt: 1,
+                likesCount: 1,
+                owner: {
+                    username: 1,
+                    fullName: 1,
+                    avatar: 1
+                },
+                isLiked: 1
+            }
         }
-    ])
+    ]);
 
-    const totalComments = await Comment.countDocuments({video:videoId})
-    const totalPages = Math.ceil(totalComments/pageLimit)
+    const options = {
+        page: parseInt(page, 10),
+        limit: parseInt(limit, 10)
+    };
+
+    const comments = await Comment.aggregatePaginate(
+        commentsAggregate,
+        options
+    );
+
+    // const totalComments = await Comment.countDocuments({ video: videoId })
+    // const totalPages = Math.ceil(totalComments / pageLimit)
 
     return res
     .status(200)
     .json(
-        new ApiResponse(200,{comments,totalComments,totalPages},"All Comments are fetched !!")
+        new ApiResponse(200,comments,"All Comments are fetched !!")
     )
 })
 
@@ -106,7 +134,7 @@ const updateComment = asyncHandler(async (req, res) => {
     
         const updatedComment=await Comment.findByIdAndUpdate(commentId,{content:newComment});
     
-        if(updatedComment){
+        if(!updatedComment){
             throw new ApiError(400,"Comment can not be updated")
         }
     
