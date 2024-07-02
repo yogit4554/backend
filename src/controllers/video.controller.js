@@ -9,84 +9,94 @@ import {v2 as cloudinary} from "cloudinary"
 
 
 const getAllVideos = asyncHandler(async (req, res) => {
-    try {
-        const { page = 1, limit = 10, query, sortBy = "title", sortType= "asc", userId } = req.query
-        const pageNumber = parseInt(page)
-        const pageLimit = parseInt(limit)
-        const skip = (pageNumber - 1) * pageLimit;
+    const { page = 1, limit = 10, query, sortBy, sortType, userId } = req.query;
+    const pipeline = [];
 
-        const sortingDirection = sortType === "desc"?-1:1;
-
-        const videos = await Video.aggregate([
-            {
-                $match:{
-                    owner: new mongoose.Types.ObjectId(userId)
-                }
-            },
-            {
-                $lookup:{
-                    from : "users",
-                    localField : "owner",
-                    foreignField : "_id",
-                    as: "owner",
-                    pipeline:[
-                        {
-                            $project:{
-                                fullName:1,
-                                username:1,
-                                avatar:1
-                            }
-                        }
-                    ]
-                }
-            },
-            {
-                $addFields:{
-                    owner:{
-                        $arrayElemAt: [ "$owner", 0 ]
-                    }
-                }
-            },
-            {
-                $skip:skip
-            },
-            {
-                $limit : pageLimit
-            },
-            {
-                $sort:{
-                    [sortBy]:sortingDirection
+    // for using Full Text based search u need to create a search index in mongoDB atlas
+    // you can include field mapppings in search index eg.title, description, as well
+    // Field mappings specify which fields within your documents should be indexed for text search.
+    // this helps in seraching only in title, desc providing faster search results
+    // here the name of search index is 'search-videos'
+    if (query) {
+        pipeline.push({
+            $search: {
+                index: "search-videos",
+                text: {
+                    query: query,
+                    path: ["title", "description"] //search only on title, desc
                 }
             }
-        ])
+        });
+    }
 
-        if(!videos){
-            throw new ApiError(404,"No video found")
+    if (userId) {
+        if (!isValidObjectId(userId)) {
+            throw new ApiError(400, "Invalid userId");
         }
 
-        const totalVideo = await Video.countDocuments({owner:userId})
-        const totalPages = Math.ceil(totalVideo/pageLimit)
-
-        return res
-        .status(200)
-        .json(
-            new ApiResponse(200,videos,"Video found succesfully",{
-                totalPages,
-                totalVideo
-            })
-        )
-
-    } catch (error) {
-        throw new ApiError(400,"Error while accumulating the  video!!")
+        pipeline.push({
+            $match: {
+                owner: new mongoose.Types.ObjectId(userId)
+            }
+        });
     }
-    
+
+    // fetch videos only that are set isPublished as true
+    pipeline.push({ $match: { isPublished: true } });
+
+    //sortBy can be views, createdAt, duration
+    //sortType can be ascending(-1) or descending(1)
+    if (sortBy && sortType) {
+        pipeline.push({
+            $sort: {
+                [sortBy]: sortType === "asc" ? 1 : -1
+            }
+        });
+    } else {
+        pipeline.push({ $sort: { createdAt: -1 } });
+    }
+
+    pipeline.push(
+        {
+            $lookup: {
+                from: "users",
+                localField: "owner",
+                foreignField: "_id",
+                as: "ownerDetails",
+                pipeline: [
+                    {
+                        $project: {
+                            username: 1,
+                            "avatar": 1
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            $unwind: "$ownerDetails"
+        }
+    )
+
+    const videoAggregate = Video.aggregate(pipeline);
+
+    const options = {
+        page: parseInt(page, 10),
+        limit: parseInt(limit, 10)
+    };
+
+    const video = await Video.aggregatePaginate(videoAggregate, options);
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, video, "Videos fetched successfully"));
 })
 
 const publishAVideo = asyncHandler(async (req, res) => {
     const { title, description} = req.body
 
     try {
-
+        const userId = await req.user._id
         const videoLocalPath = req.files?.videoFile[0].path;
         const thumbnailLocalPath = req.files?.videoFile[0].path;
 
@@ -119,7 +129,7 @@ const publishAVideo = asyncHandler(async (req, res) => {
         )
 
     } catch (error) {
-        throw new ApiError(400,"Error while publishing :)")
+        throw new ApiError(400,`Error while publishing :) ${error.message}`)
     }
 })
 
@@ -156,53 +166,59 @@ const getVideoById = asyncHandler(async (req, res) => {
 })
 
 const updateVideo = asyncHandler(async (req, res) => { // only updating thumbnail,description and title 
-    const { videoId } = req.params
-    const {title , description} = req.body
+    const { videoId } = req.params;
+    const { title, description } = req.body;
 
     try {
-        const video = await Video.findById(videoId)
 
-        if(!video){
-            throw new ApiError(404,"Video not found")
+        const video = await Video.findById(videoId);
+
+        if(!video) {
+            throw new ApiError(404, "Video not found while updating video");
         }
 
-        const publicId=await video.thumbnail.public_id
+        // delete the thumbnail from cloudinary
+        const publicId = await video.thumbnail.public_id;
 
-        if(publicId){ // deleting old thumbnail
+        if(publicId) { // deleting old thumbnail
             try {
-                await cloudinary.uploader.destroy(publicId,{resource_type:"image"})
+                await cloudinary.uploader.destroy(publicId, {resource_type: "image"});
             } catch (error) {
-                throw new ApiError(400,"Error while deleting old thumbnail")
+                throw new ApiError(400, "Error while deleting old thumbnail");
             }
         }
 
-        const thumbnailLocalPath=req.files?.path
-        if(!thumbnailLocalPath){
-            throw new ApiError(400,"Error while getting file link")
+        const thumbnailLocalPath = req.file?.path;
+
+        if(!thumbnailLocalPath) {
+            throw new ApiError(400, "Error while uploading thumbnail to cloudinary");
         }
 
-        const newThumbnail= await uploadOnCloudinary(thumbnailLocalPath)
+        const newThumbnail = await uploadOnCloudinary(thumbnailLocalPath);
 
-        const updateVideo = await findByIdAndUpdate(videoId,{
-            $set:{
-                thumbnail:newThumbnail.url,
+
+        const updatedVideo = await Video.findByIdAndUpdate(videoId, {
+            $set: {
+                thumbnail: newThumbnail.url,
                 title,
                 description
             }
-        },{new:true})
+        }, { new: true });
 
-        if(!updateVideo){
-            throw new ApiError(404,"New video not found while updating")
+
+        if(!updatedVideo) {
+            throw new ApiError(404, "Video not found while updating video");
         }
 
         return res
         .status(200)
         .json(
-            new ApiResponse(200,updateVideo,"Video updated Successfully!!")
+            new ApiResponse(200, updatedVideo, "Video updated successfully")
         )
 
+        
     } catch (error) {
-        throw new ApiError(400,"Error while updating the video")
+        throw new ApiError(400, `Error while updating video ${error.message}`);
     }
 })
 
@@ -210,7 +226,7 @@ const deleteVideo = asyncHandler(async (req, res) => {
     try {
         const { videoId } = req.params
 
-        if(isValidObjectId(videoId)){
+        if(!isValidObjectId(videoId)){
             throw new ApiError(400,"Video ID is not correct")
         }
 
@@ -231,7 +247,7 @@ const deleteVideo = asyncHandler(async (req, res) => {
                 await cloudinary.uploader.destroy(publicId,{resource_type:"video"})
                 await Video.findByIdAndDelete(videoId)
             } catch (error) {
-                throw new ApiError(400,"Error while deleting video")
+                throw new ApiError(400,`Error while deleting video ${error.message}`)
             }
         }
 
@@ -242,7 +258,7 @@ const deleteVideo = asyncHandler(async (req, res) => {
         )
 
     } catch (error) {
-        throw new ApiError(400,"Error while deleting the video")
+        throw new ApiError(400,`Error while deleting video ${error.message}`)
     }
 
 })
@@ -250,7 +266,7 @@ const deleteVideo = asyncHandler(async (req, res) => {
 const togglePublishStatus = asyncHandler(async (req, res) => {
     const { videoId } = req.params
 
-    if(isValidObjectId(videoId)){
+    if(!isValidObjectId(videoId)){
         throw new ApiError(400,"Video Id is not correct.")
     }
 
