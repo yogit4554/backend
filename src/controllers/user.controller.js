@@ -95,7 +95,7 @@ const registerUser = asyncHandler(async(req,res)=>{
 
 });
 
-const loginUser=asyncHandler(async(req,res)=>{
+const loginUser=asyncHandler(async(req,res)=>{  
     // req body -> data 
     // username or email (kisi ek se login use kro ) 
     // find the user 
@@ -122,7 +122,7 @@ const loginUser=asyncHandler(async(req,res)=>{
    const {accessToken, refreshToken} = await generateAccessAndRefereshTokens(user._id)
     const loggedInUser = await User.findById(user._id).select("-password -refreshToken")
     const options = {
-        httpOnly: true,
+        httpOnly: true,   ///by this cokkies will not be modified by frontent 
         secure: true
     }
     return res
@@ -386,7 +386,7 @@ const getUserChannelProfile = asyncHandler(async(req,res)=>{
     )
 })
 
-const getWatchHistory = asyncHandler(async(req,res)=>{
+const getWatchHistory = asyncHandler(async(req,res)=>{  
     const user= await User.aggregate([
         {
             $match:{

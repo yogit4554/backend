@@ -137,7 +137,7 @@ const getVideoById = asyncHandler(async (req, res) => {
     try {
         const { videoId } = req.params
 
-        if(!isValidObjectId(videoId)){
+        if(isValidObjectId(videoId)){
             throw new ApiError(400,"Video Id  is not correct")
         }
 
